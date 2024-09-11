@@ -5555,7 +5555,10 @@ static int GameServer_CloseClientWithCode(NBN_Connection *client, int code, bool
 
         msg->code = code;
 
-        GameServer_SendMessageTo(client, NBN_CLIENT_CLOSED_MESSAGE_TYPE, NBN_CHANNEL_RESERVED_LIBRARY_MESSAGES, msg);
+        if(GameServer_SendMessageTo(client, NBN_CLIENT_CLOSED_MESSAGE_TYPE, NBN_CHANNEL_RESERVED_LIBRARY_MESSAGES, msg) < 0) {
+          NBN_LogError("Failed to send disconnect message");
+          return NBN_ERROR;
+        }
     }
 
     return 0;
