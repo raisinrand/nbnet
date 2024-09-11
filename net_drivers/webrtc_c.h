@@ -40,6 +40,7 @@ freely, subject to the following restrictions:
 #include <time.h>
 #include <string.h>
 #include <rtc/rtc.h>
+#include <stdio.h>
 #include "json.h"
 
 #define NBN_WEBRTC_C_DRIVER_ID 2
