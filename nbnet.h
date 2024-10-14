@@ -715,7 +715,7 @@ NBN_ReliableOrderedChannel *NBN_ReliableOrderedChannel_Create(void);
 #define NBN_CONNECTION_MAX_SENT_PACKET_COUNT 16
 
 /* Number of seconds before the connection is considered stale and get closed */
-#define NBN_CONNECTION_STALE_TIME_THRESHOLD 3
+#define NBN_CONNECTION_STALE_TIME_THRESHOLD 10
 
 typedef struct NBN_MessageEntry
 {
@@ -1748,13 +1748,14 @@ static bool NBN_ConnectionTable_Remove(NBN_ConnectionTable *table, uint32_t id)
     unsigned int slot = hash % table->capacity;
     NBN_Connection *conn = table->connections[slot];
 
-    if (conn->id == id)
+    if (conn && conn->id == id)
     {
         NBN_ConnectionTable_RemoveEntry(table, slot);
         return true;
     }
 
     // quadratic probing
+
 
     unsigned int i = 0;
 
@@ -1763,7 +1764,7 @@ static bool NBN_ConnectionTable_Remove(NBN_ConnectionTable *table, uint32_t id)
         slot = (hash + (int)pow(i, 2)) % table->capacity;
         conn = table->connections[slot];
 
-        if (conn != NULL && conn->id == id)
+        if (conn && conn->id == id)
         {
             NBN_ConnectionTable_RemoveEntry(table, slot);
             return true;
@@ -3098,32 +3099,26 @@ int NBN_Connection_FlushSendQueue(NBN_Connection *connection, double time)
                 if (Connection_SendPacket(connection, &packet, packet_entry, time) < 0)
                 {
                     NBN_LogError("Failed to send packet %d", packet.header.seq_number);
+                } else {
+                    sent_packet_count++;
+                    sent_bytes += packet.size;
 
-                    return NBN_ERROR;
+                    Connection_InitOutgoingPacket(connection, &packet, &packet_entry);
+
+                    int ret = NBN_Packet_WriteMessage(&packet, message, msg_serializer);
+
+                    if (ret != NBN_PACKET_WRITE_OK)
+                    {
+                        NBN_LogError("Failed to send packet %d", packet.header.seq_number);
+                    } else {
+                      message_sent = true;
+                    }
                 }
-
-                sent_packet_count++;
-                sent_bytes += packet.size;
-
-                Connection_InitOutgoingPacket(connection, &packet, &packet_entry);
-
-                int ret = NBN_Packet_WriteMessage(&packet, message, msg_serializer);
-
-                if (ret != NBN_PACKET_WRITE_OK)
-                {
-                    NBN_LogError("Failed to send packet %d", packet.header.seq_number);
-
-                    return NBN_ERROR;
-                }
-
-                message_sent = true;
             }
             else if (ret == NBN_PACKET_WRITE_ERROR)
             {
                 NBN_LogError("Failed to write message %d of type %d to packet %d",
                         message->header.id, message->header.type, packet.header.seq_number);
-
-                return NBN_ERROR;
             }
 
             if (message_sent)
@@ -3149,12 +3144,10 @@ int NBN_Connection_FlushSendQueue(NBN_Connection *connection, double time)
     if (Connection_SendPacket(connection, &packet, packet_entry, time) < 0)
     {
         NBN_LogError("Failed to send packet %d to connection %d", packet.header.seq_number, connection->id);
-
-        return NBN_ERROR;
+    } else {
+      sent_bytes += packet.size;
+      sent_packet_count++;
     }
-
-    sent_bytes += packet.size;
-    sent_packet_count++;
 
     double t = time - connection->last_flush_time;
 
@@ -5236,10 +5229,10 @@ int NBN_GameServer_SendPackets(void)
 
         assert(!(client->is_closed && client->is_stale));
 
-        if (!client->is_stale && NBN_Connection_FlushSendQueue(client, nbn_game_server.endpoint.time) < 0)
-            return NBN_ERROR;
-
-        nbn_game_server.stats.upload_bandwidth += client->stats.upload_bandwidth;
+        if (!client->is_stale && NBN_Connection_FlushSendQueue(client, nbn_game_server.endpoint.time) < 0) {}
+        else {
+          nbn_game_server.stats.upload_bandwidth += client->stats.upload_bandwidth;
+        }
     }
 
     return 0;
