@@ -963,15 +963,24 @@ enum
     NBN_MESSAGE_RECEIVED
 };
 
+typedef enum NBN_ConnectionStatus
+{
+    NBN_STATUS_CONNECTING = 0,
+    NBN_STATUS_CONNECTED,
+    NBN_STATUS_DISCONNECTED
+} NBN_ConnectionStatus;
+
 typedef struct NBN_GameClient
 {
     NBN_Endpoint endpoint;
     NBN_Connection *server_connection;
-    bool is_connected;
+    NBN_ConnectionStatus connection_status;
     uint8_t server_data[NBN_SERVER_DATA_MAX_SIZE]; /* Data sent by the server when accepting the client's connection */
     unsigned int server_data_len; /* Length of the received server data in bytes */
     NBN_Event last_event;
     int closed_code;
+    bool disconnected;
+    bool sent_disconnect_message;
 } NBN_GameClient;
 
 extern NBN_GameClient nbn_game_client;
@@ -4515,6 +4524,7 @@ static void Endpoint_UpdateTime(NBN_Endpoint *endpoint)
 #pragma region Network driver
 
 static void ClientDriver_OnPacketReceived(NBN_Packet *packet);
+static void ClientDriver_OnDisconnected();
 static int ServerDriver_OnClientConnected(NBN_Connection *);
 static int ServerDriver_OnClientPacketReceived(NBN_Packet *);
 
@@ -4587,7 +4597,9 @@ int NBN_GameClient_StartEx(const char *protocol_name, const char *host, uint16_t
     Endpoint_Init(&nbn_game_client.endpoint, false);
 
     nbn_game_client.server_connection = NULL;
-    nbn_game_client.is_connected = false;
+    nbn_game_client.connection_status = NBN_STATUS_CONNECTING;
+    nbn_game_client.disconnected = false;
+    nbn_game_client.sent_disconnect_message = false;
     nbn_game_client.closed_code = -1;
 
     for (unsigned int i = 0; i < NBN_MAX_DRIVERS; i++)
@@ -4661,7 +4673,7 @@ void NBN_GameClient_Stop(void)
         driver->impl.cli_stop();
     }
 
-    nbn_game_client.is_connected = false;
+    nbn_game_client.connection_status = NBN_STATUS_DISCONNECTED;
     nbn_game_client.closed_code = -1;
     nbn_game_client.server_data_len = 0;
 
@@ -4699,25 +4711,26 @@ int NBN_GameClient_Poll(void)
 {
     Endpoint_UpdateTime(&nbn_game_client.endpoint);
 
-    if (nbn_game_client.server_connection->is_stale)
+    if (nbn_game_client.sent_disconnect_message)
         return NBN_NO_EVENT;
 
-    if (NBN_EventQueue_IsEmpty(&nbn_game_client.endpoint.event_queue))
+
+    bool have_event = NBN_EventQueue_Dequeue(&nbn_game_client.endpoint.event_queue, &nbn_game_client.last_event);
+    if (!have_event)
     {
-        if (NBN_Connection_CheckIfStale(nbn_game_client.server_connection, nbn_game_client.endpoint.time))
+        bool notify_disconnected = nbn_game_client.connection_status == NBN_STATUS_DISCONNECTED;
+        if(NBN_Connection_CheckIfStale(nbn_game_client.server_connection, nbn_game_client.endpoint.time)) {
+            NBN_LogInfo("Server connection is stale. Disconnected.");
+            notify_disconnected = true;
+        }
+        if (notify_disconnected)
         {
             nbn_game_client.server_connection->is_stale = true;
-            nbn_game_client.is_connected = false;
-
-            NBN_LogInfo("Server connection is stale. Disconnected.");
-
-            NBN_Event e;
-
-            e.type = NBN_DISCONNECTED;
-            e.data.connection = (NBN_Connection *)NULL;
-
-            if (!NBN_EventQueue_Enqueue(&nbn_game_client.endpoint.event_queue, e))
-                return NBN_ERROR;
+            nbn_game_client.connection_status = NBN_STATUS_DISCONNECTED;
+            nbn_game_client.sent_disconnect_message = true;
+            nbn_game_client.last_event.type = NBN_DISCONNECTED;
+            nbn_game_client.last_event.data.connection = (NBN_Connection *)NULL;
+            return GameClient_HandleEvent();
         }
         else
         {
@@ -4762,13 +4775,11 @@ int NBN_GameClient_Poll(void)
         }
     }
 
-    bool ret = NBN_EventQueue_Dequeue(&nbn_game_client.endpoint.event_queue, &nbn_game_client.last_event);
-
-    return ret ? GameClient_HandleEvent() : NBN_NO_EVENT;
+    return have_event ? GameClient_HandleEvent() : NBN_NO_EVENT;
 }
 
 int NBN_GameClient_SendPackets(void)
-{
+{ 
     return NBN_Connection_FlushSendQueue(nbn_game_client.server_connection, nbn_game_client.endpoint.time);
 }
 
@@ -4869,7 +4880,7 @@ int NBN_GameClient_GetServerCloseCode(void)
 
 bool NBN_GameClient_IsConnected(void)
 {
-    return nbn_game_client.is_connected;
+    return nbn_game_client.connection_status == NBN_STATUS_CONNECTED;
 }
 
 int NBN_GameClient_RegisterRPC(unsigned int id, NBN_RPC_Signature signature, NBN_RPC_Func func)
@@ -4983,13 +4994,13 @@ static int GameClient_HandleMessageReceivedEvent(void)
 
     if (message_info.type == NBN_CLIENT_CLOSED_MESSAGE_TYPE)
     {
-        nbn_game_client.is_connected = false;
+        nbn_game_client.connection_status = NBN_STATUS_DISCONNECTED;
         nbn_game_client.closed_code = ((NBN_ClientClosedMessage *)message_info.data)->code;
         ret = NBN_DISCONNECTED;
     }
     else if (message_info.type == NBN_CLIENT_ACCEPTED_MESSAGE_TYPE)
     {
-        nbn_game_client.is_connected = true;
+        nbn_game_client.connection_status = NBN_STATUS_CONNECTED;
         ret = NBN_CONNECTED;
 
         NBN_ClientAcceptedMessage *accepted_msg = (NBN_ClientAcceptedMessage *)message_info.data;
@@ -5017,6 +5028,11 @@ static void ClientDriver_OnPacketReceived(NBN_Packet *packet)
         NBN_LogError("Received invalid packet from server");
         NBN_Abort();
     }
+}
+
+static void ClientDriver_OnDisconnected(int closed_code) {
+    nbn_game_client.closed_code = closed_code;
+    nbn_game_client.connection_status = NBN_STATUS_DISCONNECTED;
 }
 
 #pragma endregion /* Game Client driver */

@@ -495,7 +495,7 @@ static void NBN_WebRTC_C_DestroyPeer(NBN_WebRTC_C_Peer *peer)
     NBN_Deallocator(peer);
 }
 
-static void NBN_WebRTC_C_ProcessLocalDescription(NBN_WebRTC_C_Peer *peer, const char *sdp, const char *type)
+static int NBN_WebRTC_C_ProcessLocalDescription(NBN_WebRTC_C_Peer *peer, const char *sdp, const char *type)
 {
     char *escaped_sdp = NBN_WebRTC_C_EscapeSDP(sdp);
     size_t signaling_json_size = snprintf(NULL, 0, "{\"type\":\"%s\", \"sdp\":\"%s\"}", type, escaped_sdp) + 1;
@@ -508,10 +508,12 @@ static void NBN_WebRTC_C_ProcessLocalDescription(NBN_WebRTC_C_Peer *peer, const 
     // pass -1 as the size (assume signaling_json to be a null-terminated string)
     if (rtcSendMessage(peer->ws, signaling_json, -1) < 0)
     {
-        NBN_WebRTC_C_DestroyPeer(peer);
+        NBN_LogError("Failed to send signaling message");
+        return NBN_ERROR;
     }
     NBN_Deallocator(signaling_json);
     NBN_Deallocator(escaped_sdp);
+    return 0;
 }
 
 static void NBN_WebRTC_C_ProcessSignalingMessage(NBN_WebRTC_C_Peer *peer, int ws, const char *msg, int size, const char *type)
@@ -574,7 +576,10 @@ static void NBN_WebRTC_C_Serv_OnLocalDescription(int pc, const char *sdp, const 
         return;
     }
 
-    NBN_WebRTC_C_ProcessLocalDescription((NBN_WebRTC_C_Peer *)user_ptr, sdp, "answer");
+    if(NBN_WebRTC_C_ProcessLocalDescription((NBN_WebRTC_C_Peer *)user_ptr, sdp, "answer") < 0) {
+        NBN_WebRTC_C_DestroyPeer(user_ptr);
+        return;
+    }
 }
 
 static void NBN_WebRTC_C_Serv_OnPeerStateChanged(int pc, rtcState state, void *user_ptr)
@@ -755,7 +760,11 @@ static void NBN_WebRTC_C_Cli_OnLocalDescription(int pc, const char *sdp, const c
         return;
     }
 
-    NBN_WebRTC_C_ProcessLocalDescription((NBN_WebRTC_C_Peer *)user_ptr, sdp, "offer");
+    if(NBN_WebRTC_C_ProcessLocalDescription((NBN_WebRTC_C_Peer *)user_ptr, sdp, "offer") < 0) {
+        NBN_WebRTC_C_DestroyPeer(user_ptr);
+        nbn_wrtc_c_cli.peer = NULL;
+        return;
+    }
 }
 
 static void NBN_WebRTC_C_Cli_OnPeerStateChanged(int pc, rtcState state, void *user_ptr)
@@ -799,6 +808,8 @@ static void NBN_WebRTC_C_Cli_OnWsClosed(int ws, void *user_ptr)
 
         NBN_LogDebug("Destroying server peer (peer: %d, channel: %d)", peer->id, peer->channel_id);
         NBN_WebRTC_C_DestroyPeer(peer);
+        nbn_wrtc_c_cli.peer = NULL;
+        ClientDriver_OnDisconnected(-1);
     }
 }
 
@@ -881,6 +892,7 @@ static void NBN_WebRTC_C_CliStop(void)
     if (peer)
     {
         NBN_WebRTC_C_DestroyPeer(peer);
+        nbn_wrtc_c_cli.peer = NULL;
     }
 
     nbn_wrtc_c_cli.is_connected = false;
@@ -892,17 +904,18 @@ static int NBN_WebRTC_C_CliRecvPackets(void)
     const int buffer_size = sizeof(nbn_wrtc_c_cli.packet_buffer);
     int size = buffer_size;
     NBN_WebRTC_C_Peer *peer = nbn_wrtc_c_cli.peer;
-
-    while (rtcReceiveMessage(peer->channel_id, nbn_wrtc_c_cli.packet_buffer, &size) == RTC_ERR_SUCCESS)
-    {
-        NBN_Packet packet;
-
-        if (NBN_Packet_InitRead(&packet, peer->conn, (uint8_t *)nbn_wrtc_c_cli.packet_buffer, size) < 0)
+    if(peer) {
+      while (rtcReceiveMessage(peer->channel_id, nbn_wrtc_c_cli.packet_buffer, &size) == RTC_ERR_SUCCESS)
+        {
+          NBN_Packet packet;
+          
+          if (NBN_Packet_InitRead(&packet, peer->conn, (uint8_t *)nbn_wrtc_c_cli.packet_buffer, size) < 0)
             continue;
-
-        packet.sender = peer->conn;
-        NBN_Driver_RaiseEvent(NBN_DRIVER_CLI_PACKET_RECEIVED, &packet);
-        size = buffer_size;
+          
+          packet.sender = peer->conn;
+          NBN_Driver_RaiseEvent(NBN_DRIVER_CLI_PACKET_RECEIVED, &packet);
+          size = buffer_size;
+        }
     }
 
     return 0;
@@ -912,10 +925,12 @@ static int NBN_WebRTC_C_CliSendPacket(NBN_Packet *packet)
 {
     NBN_WebRTC_C_Peer *peer = nbn_wrtc_c_cli.peer;
 
-    if (rtcSendMessage(peer->channel_id, (char *)packet->buffer, packet->size) < 0)
-    {
-        NBN_LogError("rtcSendMessage failed for peer %d", peer->id);
-        return NBN_ERROR;
+    if(peer) {
+      if (rtcSendMessage(peer->channel_id, (char *)packet->buffer, packet->size) < 0)
+        {
+          NBN_LogError("rtcSendMessage failed for peer %d", peer->id);
+          return NBN_ERROR;
+        }
     }
 
     return 0;
