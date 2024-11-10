@@ -42,7 +42,8 @@ mergeInto(LibraryManager.library, {
         return Asyncify.handleSleep(function (wakeUp) {
             this.gameServer.start(port).then(() => {
                 wakeUp(0)
-            }).catch(_ => {
+            }).catch(err => {
+                console.error("failed to start webrtc:", err)
                 wakeUp(-1)
             })
         })
@@ -107,7 +108,8 @@ mergeInto(LibraryManager.library, {
         return Asyncify.handleSleep(function (wakeUp) {
             this.gameClient.connect(UTF8ToString(hostPtr), port).then(() => {
                 wakeUp(0)
-            }).catch(_ => {
+            }).catch(err => {
+                console.error("failed to start webrtc:", err)
                 wakeUp(-1)
             })
         })

@@ -75,6 +75,7 @@ GameClient.prototype.connect = function(host, port) {
 
             this.peer.connect()
         }).catch((err) => {
+            console.log(err)
             reject(err)
         })
     })

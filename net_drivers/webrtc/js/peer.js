@@ -29,7 +29,8 @@ function Peer(id, connection) {
     this.id = id
     this.connection = connection
     this.candidates = []
-    this.peerConnection = new RTCPeerConnection({ 'iceServers': [{ 'urls': 'stun:stun01.sipphone.com' }] })
+    this.peerConnection = new RTCPeerConnection({
+        'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }] })
     this.channel = this.peerConnection.createDataChannel('unreliable',
         { negotiated: true, id: 0, maxRetransmits: 0, ordered: false })
     this.channel.binaryType = 'arraybuffer'
@@ -56,6 +57,8 @@ Peer.prototype.connect = function() {
     this.peerConnection.createOffer({ mandatory: { OfferToReceiveAudio: true, OfferToReceiveVideo: true } }).then((description) => {
         this.peerConnection.setLocalDescription(description).then(() => {
             this.logger.info('Offer created and set as local description')
+
+            this.logger.info(`Got candidate: ${JSON.stringify()}`)
 
             this.connection.send(description)
         }).catch((err) => {
@@ -104,6 +107,7 @@ Peer.prototype.send = function(data) {
 function onIceCandidate(peer, candidate) {
     if (candidate) {
         peer.logger.info('Got new candidate, save it to the candidates list')
+        console.log(candidate)
 
         peer.candidates.push(candidate)
     }
