@@ -548,7 +548,7 @@ int NBN_ClientAcceptedMessage_Serialize(NBN_ClientAcceptedMessage *, NBN_Stream 
 #pragma region NBN_ByteArrayMessage
 
 #define NBN_BYTE_ARRAY_MESSAGE_TYPE (NBN_MAX_MESSAGE_TYPES - 4) /* Reserved message type */
-#define NBN_BYTE_ARRAY_MAX_SIZE 4096
+#define NBN_BYTE_ARRAY_MAX_SIZE 16777216
 
 typedef struct NBN_ByteArrayMessage
 {
@@ -610,7 +610,7 @@ int NBN_RPC_Message_Serialize(NBN_RPC_Message *, NBN_Stream *);
 #define NBN_CHANNEL_BUFFER_SIZE 1024
 #define NBN_CHANNEL_CHUNKS_BUFFER_SIZE 255
 #define NBN_CHANNEL_RW_CHUNK_BUFFER_INITIAL_SIZE 2048
-#define NBN_CHANNEL_OUTGOING_MESSAGE_POOL_SIZE 512
+#define NBN_CHANNEL_OUTGOING_MESSAGE_POOL_SIZE 27490
 
 /* IMPORTANT: if you add a library reserved channel below, make sure to update NBN_LIBRARY_RESERVED_CHANNELS */
 
