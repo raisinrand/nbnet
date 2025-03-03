@@ -548,7 +548,7 @@ int NBN_ClientAcceptedMessage_Serialize(NBN_ClientAcceptedMessage *, NBN_Stream 
 #pragma region NBN_ByteArrayMessage
 
 #define NBN_BYTE_ARRAY_MESSAGE_TYPE (NBN_MAX_MESSAGE_TYPES - 4) /* Reserved message type */
-#define NBN_BYTE_ARRAY_MAX_SIZE 16777216
+#define NBN_BYTE_ARRAY_MAX_SIZE 131072
 
 typedef struct NBN_ByteArrayMessage
 {
